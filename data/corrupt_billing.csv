@@ -1,0 +1,6 @@
+provider,account_id,service_name,region,start_time,end_time,billed_cost,effective_cost,usage_quantity
+AWS,123456789012,AmazonEC2,us-east-1,1700000000,1700003600,12.50,10.00,1.0
+BADVENDOR,sub-987654321,VirtualMachines,westeurope,1700000000,1700003600,8.75,8.75,1.0
+GCP,proj-555444333,ComputeEngine,us-central1,1700000000,1700003600,NOT_A_NUMBER,12.10,2.5
+AWS,123456789012,AmazonS3,us-west-2,1700000000
+AZURE,sub-987654321,BlobStorage,eastus,1700000000,1700003600,5.10,4.80,220.0
