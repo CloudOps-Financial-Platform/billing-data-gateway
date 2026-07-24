@@ -1,21 +1,21 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Iinclude -O3 -march=native
+SRC = src/mmap_reader.c src/csv_parser.c src/provider_adapters.c src/main.c
+OBJ = $(SRC:.c=.o)
 TARGET = billing_gateway
-SRCS = src/mmap_reader.c src/csv_parser.c src/provider_adapters.c src/main.c
-OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o $(TARGET)
+$(TARGET): $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o $(TARGET)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-run: $(TARGET)
-	./$(TARGET) data/enterprise_billing.csv
+test: $(TARGET)
+	@bash tests/run_tests.sh
 
 clean:
 	rm -f src/*.o $(TARGET)
 
-.PHONY: all run clean
+.PHONY: all clean test
