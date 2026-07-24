@@ -1,61 +1,37 @@
 #include "../include/provider_adapters.h"
 #include "../include/csv_parser.h"
 #include <string.h>
+#include <strings.h>
 
-ifm_status_e normalize_raw_tokens(str_slice_t *tokens, size_t token_count, uint64_t record_id, ifm_record_t *out_record)
+typedef struct
 {
-    if (!tokens || !out_record)
-    {
-        return IFM_ERR_NULL_POINTER;
-    }
+    const char *aliases[8];
+    size_t alias_count;
+} column_definition_t;
 
-    if (token_count < 9)
-    {
-        return IFM_ERR_INSUFFICIENT_FIELDS;
-    }
+// Data-driven multi-cloud schema lookup matrix
+static const column_definition_t schema_matrix[] = {
+    [0] = {.aliases = {"provider", "vendor"}, .alias_count = 2},
+    [1] = {.aliases = {"account_id", "lineItem/AccountId", "SubscriptionId"}, .alias_count = 3},
+    [2] = {.aliases = {"service_name", "lineItem/ProductCode", "ServiceName"}, .alias_count = 3},
+    [3] = {.aliases = {"region", "product/region", "ResourceLocation"}, .alias_count = 3},
+    [4] = {.aliases = {"start_time", "lineItem/UsageStartDate", "Date"}, .alias_count = 3},
+    [5] = {.aliases = {"end_time", "lineItem/UsageEndDate"}, .alias_count = 2},
+    [6] = {.aliases = {"billed_cost", "lineItem/UnblendedCost", "CostInBillingCurrency", "cost"}, .alias_count = 4},
+    [7] = {.aliases = {"effective_cost", "lineItem/BlendedCost"}, .alias_count = 2},
+    [8] = {.aliases = {"usage_quantity", "lineItem/UsageAmount", "Quantity"}, .alias_count = 3}};
 
-    out_record->record_id = record_id;
-
-    // 1. Identify Provider
-    char provider_str[16];
-    slice_to_cstring(tokens[0], provider_str, sizeof(provider_str));
-
-    if (strncmp(provider_str, "AWS", 3) == 0)
+static bool slice_matches_aliases(str_slice_t slice, column_definition_t col)
+{
+    for (size_t i = 0; i < col.alias_count; i++)
     {
-        out_record->provider = PROVIDER_AWS;
+        if (slice.len == strlen(col.aliases[i]))
+        {
+            if (strncasecmp(slice.ptr, col.aliases[i], slice.len) == 0)
+            {
+                return true;
+            }
+        }
     }
-    else if (strncmp(provider_str, "AZURE", 5) == 0)
-    {
-        out_record->provider = PROVIDER_AZURE;
-    }
-    else if (strncmp(provider_str, "GCP", 3) == 0)
-    {
-        out_record->provider = PROVIDER_GCP;
-    }
-    else
-    {
-        out_record->provider = PROVIDER_UNKNOWN;
-        return IFM_ERR_UNSUPPORTED_PROVIDER;
-    }
-
-    // 2. Safe String Copying
-    slice_to_cstring(tokens[1], out_record->account_id, sizeof(out_record->account_id));
-    slice_to_cstring(tokens[2], out_record->service_name, sizeof(out_record->service_name));
-    slice_to_cstring(tokens[3], out_record->region, sizeof(out_record->region));
-
-    // 3. Safe Numeric Conversions (with Error Detection)
-    if (!safe_slice_to_uint64(tokens[4], &out_record->timestamp_start) ||
-        !safe_slice_to_uint64(tokens[5], &out_record->timestamp_end))
-    {
-        return IFM_ERR_INVALID_TIMESTAMP;
-    }
-
-    if (!safe_slice_to_double(tokens[6], &out_record->billed_cost) ||
-        !safe_slice_to_double(tokens[7], &out_record->effective_cost) ||
-        !safe_slice_to_double(tokens[8], &out_record->usage_quantity))
-    {
-        return IFM_ERR_INVALID_NUMERIC_COST;
-    }
-
-    return IFM_OK;
+    return false;
 }
