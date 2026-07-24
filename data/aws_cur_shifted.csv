@@ -1,0 +1,4 @@
+lineItem/UnblendedCost,lineItem/AccountId,provider,product/region,lineItem/ProductCode,lineItem/UsageStartDate,lineItem/UsageEndDate,lineItem/BlendedCost,lineItem/UsageAmount
+45.80,acc-998877,AWS,us-east-1,AmazonEC2,1700000000,1700003600,40.00,5.0
+120.50,acc-112233,AZURE,westeurope,VirtualMachines,1700000000,1700003600,120.50,12.0
+88.10,acc-445566,GCP,us-central1,BigQuery,1700000000,1700003600,88.10,1.0

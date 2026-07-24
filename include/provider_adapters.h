@@ -18,7 +18,10 @@ typedef struct
     bool is_valid;
 } header_map_t;
 
-// Legacy signature left untouched to keep system compiling
-ifm_status_e normalize_raw_tokens(str_slice_t *tokens, size_t token_count, uint64_t record_id, ifm_record_t *out_record);
+// Dynamic Header Resolver Protocol
+header_map_t parse_csv_header(str_slice_t *tokens, size_t token_count);
+
+// Dynamic Row Normalizer Engine
+ifm_status_e normalize_with_header_map(str_slice_t *tokens, size_t token_count, header_map_t map, uint64_t record_id, ifm_record_t *out_record);
 
 #endif // PROVIDER_ADAPTERS_H
