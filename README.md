@@ -1,6 +1,6 @@
 # CloudOps Financial Platform — Billing Data Gateway
 
-> Enterprise-grade, zero-copy multi-cloud cost billing ingestion engine engineered in C11 POSIX infrastructure.
+> High-performance C11 billing ingestion engine exploring zero-copy parsing, dynamic multi-cloud schema normalization, and defensive memory isolation.
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Version](https://img.shields.io/badge/version-v0.3.2-blue)
@@ -11,12 +11,12 @@
 
 ---
 
-## 🎯 System Architecture & Ingestion Flow
+## 🎯 Architectural Overview
 
-The `billing-data-gateway` is a high-performance C systems module designed to stream, normalize, and validate raw cloud billing exports (AWS CUR 2.0, Azure Cost Management, GCP Billing) directly into memory using zero-copy POSIX virtual memory mapping (`mmap`).
+The `billing-data-gateway` is a low-latency systems module written in C11. It streams, normalizes, and validates raw cloud billing exports directly into memory using zero-copy POSIX virtual memory mapping (`mmap`).
 
 ```text
-  Raw Cloud Billing Export (AWS CUR / Azure / GCP CSV)
+  Raw Cloud Billing Export CSV (AWS CUR / Azure / GCP)
                           │
                           ▼
         [ POSIX mmap() Virtual File Pager ]
@@ -26,27 +26,76 @@ The `billing-data-gateway` is a high-performance C systems module designed to st
                           │
          ┌────────────────┴────────────────┐
          ▼                                 ▼
-  [ FAIL: Missing Anchors ]        [ PASS: Header Offset Map ]
-         │                                 │
-         ▼                                 ▼
-  [ Hard-Abort Ingestion Gate ]    [ Zero-Heap Pointer Tokenizer ]
+  [ REJECT: Invalid Schema ]       [ PASS: Header Offset Map ]
   (0 Corrupt Memory Mutations)             │
+                                           ▼
+                                [ Zero-Heap Pointer Tokenizer ]
+                                           │
                                            ▼
                                 [ In-Memory IFM Binary Records ]
                                            │
                                            ▼
                                 [ Out-Of-Band Line Quarantine ]
-🛡️ Core Architectural InvariantsZero-Copy Virtual Memory Paging (mmap): Bypasses kernel-to-userland buffer copying by mapping file descriptors directly into virtual memory address space.Zero-Heap Allocation Tokenization (str_slice_t): Operates entirely on string pointer slices without executing runtime malloc calls inside streaming loops.Data-Driven Dynamic Schema Resolution: Uses an aliased lookup matrix (header_map_t) to dynamically resolve column offsets out-of-order, handling vendor schema drift seamlessly.Hard-Abort Defensive Validation Gate: Enforces structural integrity before row streaming; missing required financial anchors (provider, billed_cost) immediately trigger a clean, fatal abort.Out-of-Band Fault Containment: Isolates malformed or corrupted row inputs into dedicated error quarantine channels without terminating the pipeline.⚡ Quickstart & CompilationPrerequisitesCompiler: GCC (C11 support required, -Wall -Wextra -O3 -march=native)Environment: POSIX compliant OS (Linux, WSL2, macOS)Build Tool: GNU Make1. Build the BinaryBash# Clone the repository
+💡 What is the IFM (Intermediate Financial Model)?
+Cloud providers export cost billing data using radically different schema structures (lineItem/UnblendedCost in AWS CUR 2.0 vs CostInBillingCurrency in Azure Cost Management).
+
+The Intermediate Financial Model (IFM) is our sovereign, in-memory C data structure (ifm_record_t). It converts heterogenous vendor exports into a unified financial primitive containing standard fields (provider, account_id, service_name, region, billed_cost, usage_quantity). Every downstream billing calculator operates exclusively on IFM records.
+🛠️ Core Engineering Principles
+Zero-Copy Memory Mapping (mmap): Bypasses kernel-to-userland buffer copying by mapping file descriptors directly into virtual memory address space.
+
+Zero-Heap Tokenization (str_slice_t): Operates entirely on string pointer slices without executing runtime malloc calls inside streaming loops.
+
+Data-Driven Dynamic Schema Resolution: Uses an aliased lookup matrix (header_map_t) to dynamically resolve column offsets out-of-order, handling vendor schema drift seamlessly.
+
+Defensive Header Validation Gate: Enforces structural integrity before row streaming; missing required financial anchors (provider, billed_cost) immediately trigger a clean, fatal abort.
+
+Reproducible Quality Controls: All pipeline invariants are enforced through an automated bash regression test harness (make test).
+🌐 Cloud Provider Support Matrix
+Current Active Support (v0.3.2):
+
+✅ AWS CUR 2.0 — Fully supported with dynamic column offset mapping, case-insensitive header matching, and safe numeric type parsing.
+
+Planned Provider Support (v0.4.0):
+
+🟡 Azure Cost Management — Alias map defined; provider parity verification in progress.
+
+🟡 GCP Billing Export — Alias map defined; BigQuery CSV export testing in progress.
+
+⚡ Quickstart & Automated Testing
+Prerequisites
+Compiler: GCC (C11 support required, -Wall -Wextra -O3 -march=native)
+
+Environment: POSIX compliant OS (Linux, WSL2, macOS)
+
+Build Tool: GNU Make
+1. Build the Binary
+# Clone the repository
 git clone [https://github.com/CloudOps-Financial-Platform/billing-data-gateway.git](https://github.com/CloudOps-Financial-Platform/billing-data-gateway.git)
 cd billing-data-gateway
 
 # Clean and compile optimized binary
 make clean && make
-2. Execute Automated Regression SuiteBash# Run automated test harness verifying 4 threat scenarios
+2. Run Automated Regression Suite
 make test
-3. Run Gateway Against Custom Shifted DatasetsBash# Ingest shifted AWS CUR 2.0 dataset
-./billing_gateway data/aws_cur_shifted.csv
-📊 Ingestion Benchmark & Reliability MetricsDataset TypeTarget SchemaTotal RowsIngestion LatencyDataset Pass RateSystem StatusAWS CUR 2.0 ShiftedOut-of-Order Columns30.0166 ms100.00%PASSEDMissing Provider HeaderMissing Required Key1< 0.0050 ms0.00%HARD-ABORT (Pass)Duplicate Header LineOverwritten Schema10.0120 ms100.00%PASSED (Warning Logged)Unknown Extra ColumnsMetadata Pollution10.0110 ms100.00%PASSED (Columns Skipped)📁 Directory StructurePlaintextbilling-data-gateway/
+Expected Test Harness Output:
+=================================================================
+   CLOUDOPS BILLING DATA GATEWAY — REGRESSION SUITE            
+=================================================================
+[ PASS ] AWS CUR Shifted Schema Ingestion (Exit Code: 0)
+[ PASS ] Missing Provider Header Hard-Abort (Exit Code: 1)
+[ PASS ] Duplicate Header Resilience (Exit Code: 0)
+[ PASS ] Unknown Metadata Columns Filtering (Exit Code: 0)
+=================================================================
+ Summary: 4 Passed | 0 Failed
+=================================================================
+🧪 Dataset Validation Suite Results
+Test Scenario               Target Input Matrix          System Action                                   Pipeline Status
+Shifted AWS Schema          aws_cur_shifted.csv          Resolved 9 column offsets out-of-order          PASS (100% Ingested)
+Missing Provider Header     err_missing_provider.csv     Triggered hard-abort gate; 0 rows touched       PASS (Fatal Exit 1)
+Duplicate Header Line       err_duplicate_header.csv     Overwrote duplicate; logged warning             PASS (Warning Logged)
+Unknown Extra Columns       err_unknown_columns.csv      Skipped unmapped metadata columns               PASS (Columns Filtered)
+📁 Repository Structure
+billing-data-gateway/
 ├── include/
 │   ├── csv_parser.h         # Zero-copy pointer tokenizer & slice structures
 │   ├── ifm_core.h           # Sovereign Intermediate Financial Model (IFM) specs
@@ -67,4 +116,11 @@ make test
 ├── Makefile                 # Optimized C11 build & test automation script
 ├── LICENSE                  # MIT License
 └── README.md                # System architectural documentation
-🗺️ Milestone Roadmap[x] v0.1.0 — POSIX mmap() virtual file pager & zero-copy tokenizer.[x] v0.2.0 — Defensive numeric conversions & out-of-band row quarantine logging.[x] v0.3.2 — Dynamic schema resolution, hard-abort validation gate & automated test harness (make test).[ ] v0.4.0 — Multi-cloud schema expansion (Full Azure Cost Management & GCP Billing aliases).[ ] v0.5.0 — SIMD-accelerated newline scanning & multi-threaded batch ingestion.📜 LicenseThis project is open-source infrastructure software released under the MIT License.
+📜 Release History
+v0.3.2 (Current) — Integrated Dynamic Header Mapping, Hard-Abort Header Validation Gate, Data-Driven Alias Matrix, and Automated Regression Test Suite (make test).
+
+v0.2.0 — Zero-heap pointer tokenizer, defensive numeric string parsing, and out-of-band row quarantine logging.
+
+v0.1.0 — Initial POSIX mmap() virtual file pager and core project build layout.
+📄 License
+This project is open-source infrastructure software released under the MIT License.
