@@ -1,27 +1,24 @@
 #ifndef PROVIDER_ADAPTERS_H
 #define PROVIDER_ADAPTERS_H
 
-#include "../include/ifm_core.h"
+#include <stdbool.h>
+#include "ifm_spec.h"
 
-// Dynamic Column Offset Map Structure
+/* Provider Adapter Interface Contract */
 typedef struct
 {
-    int idx_provider;
-    int idx_account_id;
-    int idx_service_name;
-    int idx_region;
-    int idx_timestamp_start;
-    int idx_timestamp_end;
-    int idx_billed_cost;
-    int idx_effective_cost;
-    int idx_usage_quantity;
-    bool is_valid;
-} header_map_t;
+    provider_type_t type;
+    const char *name;
 
-// Dynamic Header Resolver Protocol
-header_map_t parse_csv_header(str_slice_t *tokens, size_t token_count);
+    /* Inspects header row for vendor-specific signature strings */
+    bool (*detect)(const char *header_line);
 
-// Dynamic Row Normalizer Engine
-ifm_status_e normalize_with_header_map(str_slice_t *tokens, size_t token_count, header_map_t map, uint64_t record_id, ifm_record_t *out_record);
+    /* Populates column index lookup table based on header tokens */
+    bool (*resolve_headers)(const char *header_line, canonical_col_map_t *col_map);
 
-#endif // PROVIDER_ADAPTERS_H
+    /* Parses a single tokenized row into a normalized IFM record */
+    bool (*parse_row)(const str_slice_t *tokens, size_t token_count,
+                      const canonical_col_map_t *col_map, ifm_record_t *out_record);
+} provider_adapter_t;
+
+#endif /* PROVIDER_ADAPTERS_H */
