@@ -18,7 +18,9 @@ static void print_usage(const char *prog_name)
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -i <path>  Specify the path to the raw cloud billing CSV export file\n");
     fprintf(stderr, "  -v         Display engine version and build metadata strings\n");
-    fprintf(stderr, "  -h         Display this help menu\n");
+    fprintf(stderr, "  -h         Display this help menu\n\n");
+    fprintf(stderr, "Example:\n");
+    fprintf(stderr, "  %s -i data/aws_cur_shifted.csv\n", prog_name);
 }
 
 static const char *get_provider_string(provider_type_t type)
@@ -31,6 +33,22 @@ static const char *get_provider_string(provider_type_t type)
         return "Azure (Cost Management)";
     default:
         return "UNKNOWN / UNRESOLVED";
+    }
+}
+
+static void format_file_size(long long bytes, char *buf, size_t buf_len)
+{
+    if (bytes < 1024)
+    {
+        snprintf(buf, buf_len, "%lld B", bytes);
+    }
+    else if (bytes < 1024 * 1024)
+    {
+        snprintf(buf, buf_len, "%.2f KB", (double)bytes / 1024.0);
+    }
+    else
+    {
+        snprintf(buf, buf_len, "%.2f MB", (double)bytes / (1024.0 * 1024.0));
     }
 }
 
@@ -73,7 +91,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[!] File Error: Failed to retrieve stats or file does not exist at: %s\n", input_path);
         return 1;
     }
-    double file_size_mb = (double)st.st_size / (1024.0 * 1024.0);
+
+    char size_str[32];
+    format_file_size(st.st_size, size_str, sizeof(size_str));
 
     ifm_record_t *records = malloc(sizeof(ifm_record_t) * MAX_CLI_RECORDS);
     if (!records)
@@ -81,8 +101,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[!] Critical Error: Heap frame allocation failure.\n");
         return 1;
     }
-
-    /* Initialize memory array buffer cleanly to prevent garbage readbacks */
     memset(records, 0, sizeof(ifm_record_t) * MAX_CLI_RECORDS);
 
     size_t out_count = 0;
@@ -92,13 +110,11 @@ int main(int argc, char *argv[])
     bool status = pipeline_process_file(input_path, records, MAX_CLI_RECORDS, &out_count);
     clock_gettime(CLOCK_MONOTONIC, &end);
 
-    /* HARD CHECKPOINT: Reject zero-row records or false status flags immediately */
     if (!status || out_count == 0)
     {
         fprintf(stderr, "[!] Ingestion Intercept: Parsing pipeline aborted safely due to structural errors.\n");
-        fprintf(stderr, "[!] Gateway Exit Code  : 1\n");
         free(records);
-        return 1;
+        return 1; // Explicit non-zero exit code for pipeline failure
     }
 
     double duration_sec = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -107,12 +123,13 @@ int main(int argc, char *argv[])
     printf("\n====================================================\n");
     printf("Billing Data Gateway %s\n", GATEWAY_VERSION);
     printf("====================================================\n");
-    printf("Input File : %s (%.3f MB)\n", input_path, file_size_mb);
-    printf("Provider   : %s\n", detected_provider);
-    printf("Rows       : %zu\n", out_count);
-    printf("Runtime    : %.2f ms (%.4f seconds)\n", duration_sec * 1000.0, duration_sec);
-    printf("Throughput : %.0f rows/sec\n", (double)out_count / duration_sec);
-    printf("\nExit Code  : 0\n");
+    printf("Input File        : %s\n", input_path);
+    printf("File Size         : %s\n", size_str);
+    printf("Provider          : %s\n", detected_provider);
+    printf("Records Processed : %zu\n", out_count);
+    printf("Elapsed Time      : %.2f ms (%.4f seconds)\n", duration_sec * 1000.0, duration_sec);
+    printf("Throughput        : %.0f rows/sec\n", (double)out_count / duration_sec);
+    printf("\nExit Code         : 0\n");
     printf("====================================================\n\n");
 
     free(records);
