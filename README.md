@@ -1,88 +1,222 @@
+
 # Billing Data Gateway
 
-> A high-performance C11 cloud billing normalization engine that converts heterogeneous cloud provider billing exports into a unified Intermediate Financial Model (IFM) using zero-copy POSIX mmap() parsing, dynamic schema resolution, and fixed-point currency arithmetic.
+> A high-performance, low-latency C11 cloud billing ingestion engine that normalizes heterogeneous hyperscaler billing exports into a unified Intermediate Financial Model (IFM) using zero-copy POSIX `mmap()` parsing, dynamic schema inversion matrices, and fixed-point currency arithmetic.
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-![Version](https://img.shields.io/badge/version-v0.5.0-blue)
+![Version](https://img.shields.io/badge/version-v0.6.0-blue)
 ![Language](https://img.shields.io/badge/language-C11-blue)
 ![Memory Model](https://img.shields.io/badge/memory--model-POSIX%20mmap()-orange)
 ![Test Suite](https://img.shields.io/badge/tests-passing-brightgreen)
+![Project Status](https://img.shields.io/badge/status-active%20development-emerald)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
 ## 🎯 What Problem Does This Solve?
 
-Enterprise organizations frequently receive billing exports from multiple cloud providers, each with radically different schemas, changing column positions, and inconsistent currency representations. 
+Enterprise organizations operating at scale receive cloud billing exports from multiple hyperscalers daily. These exports present massive architectural challenges: radically conflicting data schemas, unstable column sequence offsets, multi-gigabyte files, and variations in float decimal formatting that inject systemic rounding leakage into accounting pipelines.
 
-Billing Data Gateway provides a reusable, low-level ingestion layer that normalizes these diverse formats at high velocity. It resolves vendor header variances at runtime, producing a canonical data structure for downstream FinOps analytics, data warehouses, and reporting applications without introducing heap fragmentation or precision errors.
+**Billing Data Gateway** provides a zero-dependency, low-level system ingestion core that parses and normalizes disparate vendor exports at high velocity. By dynamically mapping provider variations at the file boundary, the engine translates raw files into an immutable, in-memory array representation. This guarantees high predictability and data consistency for downstream FinOps data warehouses, analytics platforms, and automated cloud accounting tools.
 
 ---
 
 ## 📐 Architectural Ingestion Flow
 
-The pipeline maps, parses, and normalizes file byte streams completely within virtual memory.
+The pipeline streams and maps data entirely within virtual memory, prioritizing zero data mutation and avoiding dynamic heap overhead during processing loops.
 
 ```text
  Raw Cloud Billing Export CSV (AWS CUR 2.0 / Azure Cost Management)
-                          │
-                          ▼
-        [ POSIX mmap() Virtual File Ingestion ]
-                          │
-                          ▼
-        [ Dynamic Provider Registry Auto-Detection ]
-                          │
-        ┌─────────────────┴─────────────────┐
-        ▼                                   ▼
- [ REJECT: Unknown Schema ]     [ PASS: Vendor Adapter Loaded ]
- (Pipeline Safety Abort)                    │
-                                            ▼
-                                [ Header Mapping Resolver ]
-                                (Dynamic Offset Table Inversion)
-                                            │
-                                            ▼
-                                [ Zero-Copy String Tokenizer ]
-                                (str_slice_t Row Windowing)
-                                            │
-                                            ▼
-                                [ Fixed-Point Currency Invariant ]
-                                (ASCII parsing straight to micros)
-                                            │
-                                            ▼
-                             [ Normalized In-Memory IFM Record Array ]
-⚡ FeaturesPOSIX mmap() Ingestion: Maps file descriptors directly into the process virtual address space, bypassing kernel-to-userland buffer copy costs.Zero-Copy String Handling: Uses lightweight pointer-and-length structures (str_slice_t) to parse rows without mutating data or calling malloc inside the data stream.Dynamic Provider Registry: Automatically inspects header signatures to discover hyperscaler formats instantly at the file boundary.Runtime Schema Normalization: Resolves structural column drift dynamically via a vendor-decoupled adapter matrix.Fixed-Point Arithmetic: Converts price strings directly into int64_t micro-units ($1.00 = 1,000,000 µ$), eliminating IEEE 754 binary floating-point rounding discrepancies.Defensive Exception Invariants: Catches malformed fields, out-of-bounds metrics, or missing keys, isolating errors cleanly into structured row flags.💡 The Intermediate Financial Model (IFM)Cloud vendors format exported columns under heavily conflicting definitions (lineItem/UnblendedCost in AWS vs. costInBillingCurrency or PreTaxCost in Azure).The Intermediate Financial Model (IFM) defines a consistent canonical binary record (ifm_record_t). The engine maps dynamic structural arrays out-of-order into this standard representation:Ctypedef struct {
-    provider_type_t provider;       // Provider Signature Identifiers
-    str_slice_t provider_row_id;   // In-place pointer to row item id
-    str_slice_t account_id;         // Consolidated account/subscription layout
-    str_slice_t resource_id;        // Target execution resource identifier
-    str_slice_t usage_start_raw;    // Telemetry window timing coordinate
-    int64_t billed_cost_micros;     // Fixed-point exact integer micro-units
-    size_t source_line;             // File index location tracker
-    record_flags_t flags;           // Structural verification bitmask
+                           │
+                           ▼
+         [ POSIX mmap() Virtual File Ingestion ]
+                           │
+                           ▼
+      [ Dynamic Provider Registry Auto-Detection ]
+                           │
+         ┌─────────────────┴─────────────────┐
+         ▼                                   ▼
+  [ REJECT: Unknown Schema ]     [ PASS: Vendor Adapter Loaded ]
+  (Pipeline Safety Abort)             (AWS / Azure Configured)
+                                             │
+                                             ▼
+                                 [ Header Mapping Resolver ]
+                                 (Dynamic Offset Table Inversion)
+                                             │
+                                             ▼
+                                 [ Zero-Copy String Tokenizer ]
+                                 (str_slice_t Row Windowing)
+                                             │
+                                             ▼
+                                 [ Fixed-Point Currency Invariant ]
+                                 (ASCII parsing straight to micros)
+                                             │
+                                             ▼
+                              [ Normalized In-Memory IFM Record Array ]
+
+```
+
+---
+
+## ⚡ Core Technical Features
+
+* **POSIX `mmap()` File Ingestion:** Projects file descriptors directly into the virtual address space, maximizing kernel-to-userland page fault transfer speeds and bypassing standard buffer copy costs.
+* **Zero-Copy Tokenization:** Tracks data row offsets via pointer-and-length structures (`str_slice_t`), completely eradicating internal string copying or `malloc()` performance drops inside loop iterations.
+* **Dynamic Provider Registry:** Peeks directly into initial byte streams at runtime to detect vendor schemas, loading matching adapter configurations automatically.
+* **Schema Inversion Adapters:** Normalizes structural column drift and sequence variations via dynamic lookup tables, allowing out-of-order field resolution.
+* **Fixed-Point Decimal Core:** Parses pricing elements straight out of raw text patterns into `int64_t` micro-units ($1.00 = 1,000,000 µ$), eliminating binary floating-point rounding errors.
+* **Defensive Boundary Controls:** Validates internal arrays against dirty headers, multi-declaration fields, and uninspected payloads, failing gracefully through dedicated record isolation flags.
+
+---
+
+## 💡 The Intermediate Financial Model (IFM)
+
+Hyperscalers present structural semantic variations for identical items (e.g., `lineItem/UnblendedCost` in AWS vs. `PreTaxCost` or `costInBillingCurrency` in Azure). The **Intermediate Financial Model (IFM)** defines a consistent, layout-decoupled canonical binary record structure (`ifm_record_t`) to standardize consumption attributes:
+
+```c
+typedef struct {
+    provider_type_t provider;       /* Hyperscaler identifier signature */
+    str_slice_t provider_row_id;    /* Zero-copy reference to row asset index */
+    str_slice_t account_id;         /* Direct pointer reference to account allocation context */
+    str_slice_t resource_id;        /* Fixed pointer view tracking target cloud infrastructure resource */
+    str_slice_t usage_start_raw;    /* Real-world timestamp allocation boundary */
+    int64_t billed_cost_micros;     /* Fixed-point integer micro-currency value ($1 = 1,000,000 µ) */
+    size_t source_line;             /* Traceable file line tracking array offset */
+    record_flags_t flags;           /* Internal validation bitmask markers */
 } ifm_record_t;
-Every downstream pipeline processor or core analytical application operates exclusively on this normalized structure.🌐 Current Provider SupportCloud Provider LayoutIngestion Offset MappingProcessing StrategyStatusAWS CUR 2.0Dynamic Header Columns MatrixMicro-Currency Resolution✅ ActiveAzure Cost ManagementDynamic Header Columns MatrixMicro-Currency Resolution✅ ActiveGCP Billing ExportBigQuery Schema Variant ArrayChunked File Extraction📅 Planned📊 Performance Benchmarks (v0.5.0)Test MethodologyPerformance profiles are compiled using a high-resolution, hardware-isolated tracking framework tracking nanosecond-precision execution windows. The benchmark bypasses host execution variance, measuring only the parsing, adaptation, and normalization pipelines.Environment Platform: Windows 11 Core + WSL2 (Ubuntu Linux Kernel)Compiler Stack: GCC C11 Optimization Profile (-Wall -Wextra -O3)Test Workload Scale: 100,000 Synchronous AWS CUR 2.0 Data Rows (6.54 MB payload)Telemetry Baseline ResultsMetric Performance VectorReal-World Empirical ValueData Processing Bandwidth35.49 MB/secIngestion Pipeline Velocity542,535 records/secondTotal Pipeline Runtime184.32 msAverage Latency Cost1,843.20 nanoseconds / record📁 Repository LayoutThe workspace is strictly partitioned to separate the ingestion plane from the verification engines:Plaintextbilling-data-gateway/
+
+```
+
+---
+
+## 🌐 Current Provider Support
+
+| Cloud Provider Layout | Ingestion Offset Mapping | Processing Strategy | Status |
+| --- | --- | --- | --- |
+| **AWS CUR 2.0** | Dynamic Header Offset Array Matrix | Fixed-Point Fractional Cost Invariant | ✅ Active |
+| **Azure Cost Management** | Dynamic Header Offset Array Matrix | Fixed-Point Fractional Cost Invariant | ✅ Active |
+| **GCP Billing Export** | BigQuery Structured Variant Schema | Chunked Buffer Multi-Stream Extraction | 📅 Planned |
+
+---
+
+## 🖥️ Command-Line Interface
+
+The application features a built-in production CLI built around POSIX standard flag inputs, providing runtime diagnostic telemetry data for automated infrastructure tasks.
+
+### Core Command Operations
+
+* **Display Interface Help:**
+```bash
+./billing-gateway -h
+
+```
+
+
+* **Verify Version & Build Metadata:**
+```bash
+./billing-gateway -v
+
+```
+
+
+* **Normalize Cloud Billing Payload Export:**
+```bash
+./billing-gateway -i data/aws_cur_shifted.csv
+
+```
+
+
+
+### CLI Terminal Output Snapshot
+
+```text
+====================================================
+Billing Data Gateway v0.6.0
+====================================================
+Input File        : data/aws_cur_shifted.csv
+File Size         : 407 B
+Provider          : AWS (CUR 2.0)
+Records Processed : 3
+Elapsed Time      : 10.07 ms (0.0101 seconds)
+Throughput        : 298 rows/sec
+
+Exit Code         : 0
+====================================================
+
+```
+
+---
+
+## 📊 Performance Benchmarks (v0.5.0 Baseline)
+
+Profiles are compiled using a high-resolution, hardware-isolated tracking framework using POSIX `CLOCK_MONOTONIC` to record execution windows with nanosecond precision, bypassing system execution jitters.
+
+### Test Environment Profile
+
+* **Hardware Compute Grid:** Acer Nitro V 16 Core Processing Unit
+* **Operating System Node:** WSL2 Virtual Subsystem Matrix (Ubuntu Linux Environment)
+* **Compiler Stack Ingress:** GCC C11 Target Profile Configurations (`-Wall -Wextra -O3`)
+* **Test Dataset Workload:** 100,000 Synchronous AWS CUR 2.0 Data Rows (6.54 MB payload)
+
+### Empirical Telemetry Performance Data
+
+* **Data Processing Bandwidth:** 35.49 MB/sec
+* **Ingestion Pipeline Velocity:** 542,535 records/second
+* **Total Pipeline Ingestion Window:** 184.32 ms
+* **Average Latency Overhead Cost:** 1,843.20 nanoseconds / record
+
+---
+
+## 📁 Repository Layout
+
+The workspace partitions operational ingestion engines from data testing targets:
+
+```text
+billing-data-gateway/
 ├── include/
-│   ├── ifm_spec.h             # Canonical primitives and record structural layout
-│   ├── mmap_reader.h          # Low-level POSIX paging and virtual mapping handles
-│   ├── provider_adapters.h    # Hyperscaler structural interface abstractions
-│   ├── provider_registry.h    # Runtime header routing definitions
-│   └── pipeline.h             # E2E pipeline synchronization controls
+│   ├── ifm_spec.h              # Canonical primitives and record layout schemas
+│   ├── mmap_reader.h           # POSIX memory-mapped paging system definitions
+│   ├── provider_adapters.h     # Hyperscaler mapping interface specifications
+│   ├── provider_registry.h     # Dynamic routing registration maps
+│   ├── pipeline.h              # End-to-end processing orchestration definitions
+│   └── version.h               # Central release version and timestamp parameters
 ├── src/
-│   ├── mmap_reader.c          # Core virtual paging implementation
+│   ├── mmap_reader.c           # Zero-copy memory page mapping layer
 │   ├── adapters/
-│   │   ├── aws_adapter.c      # AWS CUR 2.0 dynamic header mapping logic
-│   │   └── azure_adapter.c    # Azure Cost Management mapping logic
+│   │   ├── aws_adapter.c       # AWS CUR 2.0 dynamic schema mapping logic
+│   │   └── azure_adapter.c     # Azure cost normalization structural mapping logic
 │   ├── providers/
-│   │   └── provider_registry.c# Auto-detection and routing matrix
+│   │   └── provider_registry.c # File header lookup scanner and routing core
 │   ├── utils/
-│   │   └── fixed_point.c      # High-speed micro-currency parsing routines
-│   └── pipeline.c             # Main pipeline orchestration loop
+│   │   └── fixed_point.c       # Fast integer micro-currency math components
+│   ├── pipeline.c              # Core processing loop manager
+│   └── main.c                  # Command-line input processing wrapper
 ├── tests/
-│   └── test_pipeline.c       # End-to-end regression test suite
+│   └── test_pipeline.c        # End-to-end validation test configurations
 ├── benchmarks/
-│   └── bench_throughput.c     # POSIX CLOCK_MONOTONIC timing suite
-└── README.md                  # Project architectural baseline documentation
-⚡ Quick StartPrerequisitesCompiler: GCC (C11 support required)OS Environment: POSIX-compliant system (Linux, WSL2, macOS)1. Execute Compilation CheckCompile the system using standard optimized compiler configurations:Bashgcc -Wall -Wextra -O3 -Iinclude \
+│   └── bench_throughput.c      # POSIX timer performance tracking framework
+├── data/
+│   └── aws_cur_shifted.csv     # Mock billing records used during sprint runs
+└── README.md                   # Permanent asset architecture documentation
+
+```
+
+---
+
+## ⚡ Quick Start
+
+### 1. Clone the Source Repository
+
+```bash
+git clone [https://github.com/CloudOps-Financial-Platform/billing-data-gateway.git](https://github.com/CloudOps-Financial-Platform/billing-data-gateway.git)
+cd billing-data-gateway
+
+```
+
+### 2. Compile Validation Core Test Assemblies
+
+```bash
+gcc -Wall -Wextra -O3 -Iinclude \
     src/mmap_reader.c \
     src/utils/fixed_point.c \
     src/adapters/aws_adapter.c \
@@ -91,10 +225,20 @@ Every downstream pipeline processor or core analytical application operates excl
     src/pipeline.c \
     tests/test_pipeline.c \
     -o test_runner
-2. Run Integration TestsBash./test_runner
-Expected Terminal Telemetry:Plaintext[*] Running Day 13 Pipeline End-to-End Verification Harness...
-[+] SUCCESS: Pipeline executed, zero-copy string slices valid, micro-currency verified!
-3. Run Throughput BenchmarksCompile and invoke the high-resolution performance suite:Bashgcc -Wall -Wextra -O3 -Iinclude \
+
+```
+
+### 3. Run E2E Test Suite
+
+```bash
+./test_runner
+
+```
+
+### 4. Compile and Run High-Resolution Throughput Benchmarks
+
+```bash
+gcc -Wall -Wextra -O3 -Iinclude \
     src/mmap_reader.c \
     src/utils/fixed_point.c \
     src/adapters/aws_adapter.c \
@@ -103,8 +247,33 @@ Expected Terminal Telemetry:Plaintext[*] Running Day 13 Pipeline End-to-End Veri
     src/pipeline.c \
     benchmarks/bench_throughput.c \
     -o bench_runner && ./bench_runner
-🗺️ Product RoadmapPlaintext  [v0.5.0]  ──►  [v0.6.0]  ──►  [v0.7.0]  ──►  [v0.8.0]  ──►  [v1.0.0]
-  Benchmark      CLI Binary     Embed API    Serializers    Production
-  Telemetry      Gateway        Library      JSON/Parquet   Release
-  (Current)      (Next Sprint)  (libbg.a)    Output Plane   Stable Core
-v0.5.0 (Current Milestone): Empirical throughput performance benchmarking and high-resolution nanosecond verification tracking.v0.6.0 (Next Sprint): Implementation of user-facing Command Line Interface (getopt.h) for decoupled runtime pipeline invocation.v0.7.0: Compilation into an installable embeddable static library interface (libbillinggateway.a).v0.8.0: High-velocity output serializers (JSON, Apache Parquet, Apache Arrow format conversions).📄 LicenseThis repository is open-source infrastructure software released under the terms of the MIT License.
+
+```
+
+---
+
+## 🗺️ Project Execution Timeline
+
+* ✅ **v0.5.0** — Core normalizer engine, `mmap()` file mappings, fixed-point math loops, and monotonic benchmarking telemetry arrays.
+* ✅ **v0.6.0** — Built-in POSIX `getopt()` CLI, version checks, file metadata parsing, dynamic size scaling, and verification error isolation loops.
+* 🔄 **v0.7.0 [Sprint 2 Target]** — High-Throughput Structured Output Serializers (Streaming JSON / Apache Parquet / Apache Arrow extraction arrays).
+* 🎯 **v1.0.0** — Production stable iteration deployment interface baseline.
+
+---
+
+## 📜 Historical Release Ledger
+
+| Version | Milestone Date | Core Technical Highlights Deliverables | Ingestion Baseline |
+| --- | --- | --- | --- |
+| **`v0.6.0`** | July 28, 2026 | Standalone terminal CLI, version mappings, dynamic size formats, truth data summaries. | Verified Tested Sets |
+| **`v0.5.0`** | July 27, 2026 | Embedded high-res timer benchmarks, 100k data array load loops, throughput diagnostics. | Baseline Fact |
+
+---
+
+## 📄 License
+
+This repository is open-source infrastructure software released under the terms of the MIT License.
+
+```
+
+```
