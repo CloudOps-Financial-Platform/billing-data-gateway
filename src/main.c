@@ -1,135 +1,92 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdbool.h>
 #include <time.h>
-#include "../include/ifm_core.h"
-#include "../include/mmap_reader.h"
-#include "../include/csv_parser.h"
-#include "../include/provider_adapters.h"
+#include "pipeline.h"
+#include "version.h"
 
-#define MAX_RECORDS 100000
-#define MAX_TOKENS 64
+#define MAX_CLI_RECORDS 500000 // Safe bounded operational frame allocation
 
-static uint64_t get_time_ns(void)
+static void print_usage(const char *prog_name)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+    fprintf(stderr, "Billing Data Gateway — High-Performance Cloud Cost Normalization\n\n");
+    fprintf(stderr, "Usage: %s -i <input_csv_path> [-v]\n", prog_name);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  -i <path>  Specify the path to the raw cloud billing CSV export file\n");
+    fprintf(stderr, "  -v         Display engine version and build metadata strings\n");
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
-    const char *filepath = (argc > 1) ? argv[1] : "data/enterprise_billing.csv";
+    char *input_path = NULL;
+    int opt;
 
-    mmap_file_t file;
-    if (!mmap_open(filepath, &file))
+    /* Parse execution argument vector flags using POSIX getopt */
+    while ((opt = getopt(argc, argv, "i:v")) != -1)
     {
-        fprintf(stderr, "[FATAL] Failed to open file: %s\n", filepath);
-        return 1;
-    }
-
-    ifm_record_t *record_buffer = malloc(sizeof(ifm_record_t) * MAX_RECORDS);
-    if (!record_buffer)
-    {
-        fprintf(stderr, "[FATAL] Memory allocation failed\n");
-        mmap_close(&file);
-        return 1;
-    }
-
-    const char *curr = file.data;
-    const char *end = file.data + file.size;
-    const char *line_start = curr;
-
-    // 1. Scan and Parse Header Line Dynamically
-    while (curr < end && *curr != '\n')
-        curr++;
-    str_slice_t header_tokens[MAX_TOKENS];
-    size_t header_token_count = csv_tokenize_line(line_start, curr, header_tokens, MAX_TOKENS);
-
-    header_map_t hmap = parse_csv_header(header_tokens, header_token_count);
-
-    // STRICT INVARIANT: Hard-abort pipeline if vital header fields are missing
-    if (!hmap.is_valid)
-    {
-        fprintf(stderr, "=================================================================\n");
-        fprintf(stderr, "[FATAL ABORT] Ingestion halted: CSV Header missing required fields.\n");
-        fprintf(stderr, "=================================================================\n");
-        free(record_buffer);
-        mmap_close(&file);
-        return 1; // ABORT EXECUTABLE IMMEDIATELY
-    }
-
-    curr++; // Skip newline after header
-    line_start = curr;
-
-    size_t total_rows_scanned = 0;
-    size_t successful_parses = 0;
-    size_t parse_errors = 0;
-
-    uint64_t start_time = get_time_ns();
-
-    // 2. Stream Rows Using Dynamic Header Map
-    while (curr < end && successful_parses < MAX_RECORDS)
-    {
-        if (*curr == '\n' || curr == end - 1)
+        switch (opt)
         {
-            const char *line_end = (*curr == '\n') ? curr : curr + 1;
-
-            if (line_end > line_start)
-            {
-                total_rows_scanned++;
-
-                str_slice_t tokens[MAX_TOKENS];
-                size_t token_count = csv_tokenize_line(line_start, line_end, tokens, MAX_TOKENS);
-
-                ifm_status_e status = normalize_with_header_map(tokens, token_count, hmap, successful_parses + 1, &record_buffer[successful_parses]);
-
-                if (status == IFM_OK)
-                {
-                    successful_parses++;
-                }
-                else
-                {
-                    parse_errors++;
-                    if (parse_errors <= 5)
-                    {
-                        fprintf(stderr, "[DIAGNOSTIC] Row %zu Quarantined: %s\n", total_rows_scanned, ifm_status_to_string(status));
-                    }
-                }
-            }
-
-            line_start = curr + 1;
+        case 'i':
+            input_path = optarg;
+            break;
+        case 'v':
+            printf("Billing Data Gateway\n");
+            printf("Version : %s\n", GATEWAY_VERSION);
+            printf("Build   : %s\n", GATEWAY_BUILD_DATE);
+            return 0;
+        default:
+            print_usage(argv[0]);
+            return 1;
         }
-        curr++;
     }
 
-    uint64_t end_time = get_time_ns();
-    mmap_close(&file);
-
-    double total_time_ms = (double)(end_time - start_time) / 1e6;
-
-    printf("=================================================================\n");
-    printf("   CLOUDOPS FINANCIAL PLATFORM — BILLING DATA GATEWAY v0.3.2     \n");
-    printf("=================================================================\n");
-    printf(" Engine Mode       : Dynamic Schema Resolution (Milestone 3.2)\n");
-    printf(" File Processed    : %s\n", filepath);
-    printf(" Columns Mapped    : %zu Fields Resolved Dynamically\n", header_token_count);
-    printf(" Total Rows Read   : %zu\n", total_rows_scanned);
-    printf(" Successful IFM    : %zu\n", successful_parses);
-    printf(" Quarantined Rows  : %zu\n", parse_errors);
-    printf(" Dataset Pass Rate : %.2f%%\n", total_rows_scanned > 0 ? ((double)successful_parses / total_rows_scanned) * 100.0 : 0.0);
-    printf(" Ingestion Time    : %.4f ms\n", total_time_ms);
-    printf("=================================================================\n");
-
-    if (successful_parses > 0)
+    /* Enforce mandatory parameter perimeters */
+    if (!input_path)
     {
-        printf(" Sample IFM Record [1] -> Provider: %d | Account: %s | Service: %s | Cost: $%.2f\n",
-               record_buffer[0].provider,
-               record_buffer[0].account_id,
-               record_buffer[0].service_name,
-               record_buffer[0].billed_cost);
-        printf("=================================================================\n");
+        fprintf(stderr, "[!] Operational Error: Missing mandatory input parameter (-i).\n\n");
+        print_usage(argv[0]);
+        return 1;
     }
 
-    free(record_buffer);
+    /* Allocate localized record buffer array on heap */
+    ifm_record_t *records = malloc(sizeof(ifm_record_t) * MAX_CLI_RECORDS);
+    if (!records)
+    {
+        fprintf(stderr, "[!] Critical Error: Heap frame allocation failure for %d records.\n", MAX_CLI_RECORDS);
+        return 1;
+    }
+
+    size_t out_count = 0;
+    struct timespec start, end;
+
+    /* Invoke Low-Latency Memory-Mapped Pipeline */
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    bool status = pipeline_process_file(input_path, records, MAX_CLI_RECORDS, &out_count);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    if (!status)
+    {
+        fprintf(stderr, "[!] Ingestion Intercept: Parsing failure or unrecognized schema on target file.\n");
+        free(records);
+        return 1;
+    }
+
+    double duration_sec = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+
+    /* High-Density, Professional Telemetry Output Block */
+    printf("\n=================================================================\n");
+    printf(" 📊 INGESTION TELEMETRY DISPATCH SUCCESSFUL\n");
+    printf("=================================================================\n");
+    printf("  • Target Input File  : %s\n", input_path);
+    printf("  • Rows Processed     : %zu records\n", out_count);
+    printf("  • Ingestion Runtime  : %.2f ms (%.4f seconds)\n", duration_sec * 1000.0, duration_sec);
+    printf("  • Core Throughput    : %.0f rows/sec\n", (double)out_count / duration_sec);
+    printf("  • Gateway Exit Code  : 0\n");
+    printf("=================================================================\n\n");
+
+    free(records);
     return 0;
 }
