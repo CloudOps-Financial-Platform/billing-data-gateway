@@ -4,14 +4,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "ifm_spec.h"
+#include "mmap_reader.h" // Include to ensure mmap_file_t is visible
 
-/*
- * Orchestrates the full ingestion plane:
- * 1. Maps file via mmap
- * 2. Auto-detects cloud provider schema
- * 3. Tokenizes and stream-normalizes rows zero-copy into IFM record array
+/**
+ * @brief Zero-copy pipeline parsing abstraction core.
+ * @note mfile structure must remain allocated and open outside this execution scope.
  */
-bool pipeline_process_file(const char *filepath, ifm_record_t *records_buffer,
+bool pipeline_process_file(mmap_file_t *mfile, ifm_record_t *records_buffer,
                            size_t max_records, size_t *out_records_count);
 
-#endif /* PIPELINE_H */
+#endif

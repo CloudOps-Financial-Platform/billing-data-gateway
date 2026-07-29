@@ -7,7 +7,6 @@
 
 #define MAX_ROW_TOKENS 256
 
-/* Fast in-place comma tokenizer operating on string slices (Handles trailing tokens cleanly) */
 static size_t tokenize_line(const char *line_start, size_t line_len, str_slice_t *tokens, size_t max_tokens)
 {
     if (!line_start || line_len == 0 || !tokens)
@@ -39,42 +38,25 @@ static size_t tokenize_line(const char *line_start, size_t line_len, str_slice_t
         }
         ptr++;
     }
-
     return count;
 }
 
-bool pipeline_process_file(const char *filepath, ifm_record_t *records_buffer,
+bool pipeline_process_file(mmap_file_t *mfile, ifm_record_t *records_buffer,
                            size_t max_records, size_t *out_records_count)
 {
-    if (!filepath || !records_buffer || !out_records_count || max_records == 0)
+    if (!mfile || !mfile->data || mfile->size == 0 || !records_buffer || !out_records_count || max_records == 0)
     {
         return false;
     }
 
     *out_records_count = 0;
-
-    /* 1. Initialize Memory-Mapped File Buffer */
-    mmap_file_t mfile;
-    if (!mmap_open(filepath, &mfile))
-    {
-        return false;
-    }
-
-    if (mfile.size == 0)
-    {
-        mmap_close(&mfile);
-        return false;
-    }
-
-    /* 2. Initialize Provider Registry */
     provider_registry_init();
 
-    /* 3. Extract Header Line */
-    const char *buffer = (const char *)mfile.data;
-    const char *header_end = memchr(buffer, '\n', mfile.size);
+    /* 1. Extract Header Line from the already mapped descriptor array */
+    const char *buffer = (const char *)mfile->data;
+    const char *header_end = memchr(buffer, '\n', mfile->size);
     if (!header_end)
     {
-        mmap_close(&mfile);
         return false;
     }
 
@@ -85,25 +67,23 @@ bool pipeline_process_file(const char *filepath, ifm_record_t *records_buffer,
     memcpy(header_buf, buffer, header_len);
     header_buf[header_len] = '\0';
 
-    /* 4. Auto-Detect Provider Schema */
+    /* 2. Auto-Detect Provider Schema */
     const provider_adapter_t *adapter = provider_registry_detect(header_buf);
     if (!adapter)
     {
-        mmap_close(&mfile);
-        return false; /* Unrecognized vendor layout */
-    }
-
-    /* 5. Resolve Column Mapping Table */
-    canonical_col_map_t col_map;
-    if (!adapter->resolve_headers(header_buf, &col_map))
-    {
-        mmap_close(&mfile);
         return false;
     }
 
-    /* 6. Stream Rows Zero-Copy */
+    /* 3. Resolve Column Mapping Table */
+    canonical_col_map_t col_map;
+    if (!adapter->resolve_headers(header_buf, &col_map))
+    {
+        return false;
+    }
+
+    /* 4. Stream Rows Zero-Copy */
     const char *row_start = header_end + 1;
-    const char *file_end = buffer + mfile.size;
+    const char *file_end = buffer + mfile->size;
     size_t current_line = 2;
     str_slice_t row_tokens[MAX_ROW_TOKENS];
 
@@ -112,7 +92,6 @@ bool pipeline_process_file(const char *filepath, ifm_record_t *records_buffer,
         const char *row_end = memchr(row_start, '\n', file_end - row_start);
         size_t row_len = row_end ? (size_t)(row_end - row_start) : (size_t)(file_end - row_start);
 
-        /* Skip empty lines */
         if (row_len > 0 && *row_start != '\r')
         {
             size_t token_count = tokenize_line(row_start, row_len, row_tokens, MAX_ROW_TOKENS);
@@ -132,7 +111,6 @@ bool pipeline_process_file(const char *filepath, ifm_record_t *records_buffer,
         current_line++;
     }
 
-    /* 7. Clean Up Memory Map */
-    mmap_close(&mfile);
+    /* Memory remains mapped cleanly for downstream output system usage layers */
     return true;
 }

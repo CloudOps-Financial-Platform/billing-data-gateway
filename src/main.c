@@ -7,6 +7,8 @@
 #include <time.h>
 #include <sys/stat.h>
 #include "pipeline.h"
+#include "mmap_reader.h"
+#include "serializer.h"
 #include "version.h"
 
 #define MAX_CLI_RECORDS 500000
@@ -14,13 +16,12 @@
 static void print_usage(const char *prog_name)
 {
     fprintf(stderr, "Billing Data Gateway — High-Performance Cloud Cost Normalization\n\n");
-    fprintf(stderr, "Usage: %s -i <input_csv_path> [-v] [-h]\n", prog_name);
+    fprintf(stderr, "Usage: %s -i <input_csv_path> [-f <format>] [-v] [-h]\n", prog_name);
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -i <path>  Specify the path to the raw cloud billing CSV export file\n");
-    fprintf(stderr, "  -v         Display engine version and build metadata strings\n");
-    fprintf(stderr, "  -h         Display this help menu\n\n");
-    fprintf(stderr, "Example:\n");
-    fprintf(stderr, "  %s -i data/aws_cur_shifted.csv\n", prog_name);
+    fprintf(stderr, "  -i <path>    Specify the path to the raw cloud billing CSV export file\n");
+    fprintf(stderr, "  -f <format>  Specify output format: 'json' (streams raw data payload)\n");
+    fprintf(stderr, "  -v           Display engine version and build metadata strings\n");
+    fprintf(stderr, "  -h           Display this help menu\n\n");
 }
 
 static const char *get_provider_string(provider_type_t type)
@@ -55,19 +56,21 @@ static void format_file_size(long long bytes, char *buf, size_t buf_len)
 int main(int argc, char *argv[])
 {
     char *input_path = NULL;
+    char *format_arg = NULL;
     int opt;
 
-    while ((opt = getopt(argc, argv, "i:vh")) != -1)
+    while ((opt = getopt(argc, argv, "i:f:vh")) != -1)
     {
         switch (opt)
         {
         case 'i':
             input_path = optarg;
             break;
+        case 'f':
+            format_arg = optarg;
+            break;
         case 'v':
-            printf("Billing Data Gateway\n");
-            printf("Version : %s\n", GATEWAY_VERSION);
-            printf("Build   : %s\n", GATEWAY_BUILD_DATE);
+            printf("Billing Data Gateway v%s\n", GATEWAY_VERSION);
             return 0;
         case 'h':
             print_usage(argv[0]);
@@ -80,25 +83,33 @@ int main(int argc, char *argv[])
 
     if (!input_path)
     {
-        fprintf(stderr, "[!] Operational Error: Missing mandatory input parameter (-i).\n\n");
-        print_usage(argv[0]);
+        fprintf(stderr, "[!] Operational Error: Missing mandatory input parameter (-i).\n");
         return 1;
     }
 
     struct stat st;
     if (stat(input_path, &st) != 0)
     {
-        fprintf(stderr, "[!] File Error: Failed to retrieve stats or file does not exist at: %s\n", input_path);
+        fprintf(stderr, "[!] File Error: Failed to access path: %s\n", input_path);
         return 1;
     }
 
     char size_str[32];
     format_file_size(st.st_size, size_str, sizeof(size_str));
 
+    /* Initialize Memory Map safely at the root entry point layer context */
+    mmap_file_t mfile;
+    if (!mmap_open(input_path, &mfile))
+    {
+        fprintf(stderr, "[!] Mmap Error: Failed mapping memory space for %s\n", input_path);
+        return 1;
+    }
+
     ifm_record_t *records = malloc(sizeof(ifm_record_t) * MAX_CLI_RECORDS);
     if (!records)
     {
-        fprintf(stderr, "[!] Critical Error: Heap frame allocation failure.\n");
+        fprintf(stderr, "[!] Critical Error: Memory initialization break.\n");
+        mmap_close(&mfile);
         return 1;
     }
     memset(records, 0, sizeof(ifm_record_t) * MAX_CLI_RECORDS);
@@ -107,31 +118,39 @@ int main(int argc, char *argv[])
     struct timespec start, end;
 
     clock_gettime(CLOCK_MONOTONIC, &start);
-    bool status = pipeline_process_file(input_path, records, MAX_CLI_RECORDS, &out_count);
+    bool status = pipeline_process_file(&mfile, records, MAX_CLI_RECORDS, &out_count);
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     if (!status || out_count == 0)
     {
-        fprintf(stderr, "[!] Ingestion Intercept: Parsing pipeline aborted safely due to structural errors.\n");
+        fprintf(stderr, "[!] Ingestion Failure: Pipeline parsing checks failed out.\n");
         free(records);
-        return 1; // Explicit non-zero exit code for pipeline failure
+        mmap_close(&mfile);
+        return 1;
+    }
+
+    /* Output System serialization runs safely while mmap layout remains alive */
+    if (format_arg && strcmp(format_arg, "json") == 0)
+    {
+        serializer_write_json(stdout, records, out_count);
+        free(records);
+        mmap_close(&mfile); // Safe close out after serialization reads finish
+        return 0;
     }
 
     double duration_sec = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-    const char *detected_provider = get_provider_string(records[0].provider);
-
     printf("\n====================================================\n");
     printf("Billing Data Gateway %s\n", GATEWAY_VERSION);
     printf("====================================================\n");
     printf("Input File        : %s\n", input_path);
     printf("File Size         : %s\n", size_str);
-    printf("Provider          : %s\n", detected_provider);
+    printf("Provider          : %s\n", get_provider_string(records[0].provider));
     printf("Records Processed : %zu\n", out_count);
-    printf("Elapsed Time      : %.2f ms (%.4f seconds)\n", duration_sec * 1000.0, duration_sec);
+    printf("Elapsed Time      : %.2f ms\n", duration_sec * 1000.0);
     printf("Throughput        : %.0f rows/sec\n", (double)out_count / duration_sec);
-    printf("\nExit Code         : 0\n");
     printf("====================================================\n\n");
 
     free(records);
+    mmap_close(&mfile); // Clean up memory pages prior to application exit
     return 0;
 }
