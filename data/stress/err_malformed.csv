@@ -1,0 +1,2 @@
+identity/LineItemId,lineItem/UnblendedCost,lineItem/UsageStartDate
+bad_row_1,garbage_string,not_a_date

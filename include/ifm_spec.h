@@ -24,9 +24,8 @@ typedef enum
 typedef enum
 {
     RECORD_VALID = 0,
-    RECORD_MALFORMED = 1 << 0,
-    RECORD_MISSING_KEY = 1 << 1,
-    RECORD_OVERFLOW = 1 << 2
+    RECORD_MISSING_KEY = (1 << 0), /* 0x01 */
+    RECORD_INVALID_COST = (1 << 1) /* 0x02 */
 } record_flags_t;
 
 /* Intermediate Financial Model (IFM) Record Struct */
