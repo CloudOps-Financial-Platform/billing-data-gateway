@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include "pipeline.h"
+#include "mmap_reader.h"
 
 static void create_mock_aws_file(const char *filepath)
 {
@@ -22,21 +23,27 @@ static void create_mock_aws_file(const char *filepath)
 
 int main(void)
 {
-    printf("[*] Running Day 13 Pipeline End-to-End Verification Harness...\n");
+    printf("[*] Running Pipeline End-to-End Verification Harness...\n");
 
     const char *mock_path = "mock_aws_billing.csv";
     create_mock_aws_file(mock_path);
 
+    /* 1. Open mock file via POSIX mmap layer */
+    mmap_file_t mfile;
+    bool open_status = mmap_open(mock_path, &mfile);
+    assert(open_status == true);
+
     ifm_record_t buffer[10];
     size_t parsed_count = 0;
 
-    /* Execute Ingestion Pipeline */
-    bool status = pipeline_process_file(mock_path, buffer, 10, &parsed_count);
+    /* 2. Execute Ingestion Pipeline passing mmap_file_t handle */
+    bool status = pipeline_process_file(&mfile, buffer, 10, &parsed_count);
 
     /* Assert Ingestion Success */
     if (!status)
     {
         fprintf(stderr, "[!] CRITICAL: Pipeline returned failure status.\n");
+        mmap_close(&mfile);
         remove(mock_path);
         return 1;
     }
@@ -51,7 +58,8 @@ int main(void)
 
     printf("[+] SUCCESS: Pipeline executed, zero-copy string slices valid, micro-currency verified!\n");
 
-    /* Cleanup Mock File */
+    /* 3. Cleanup Resources */
+    mmap_close(&mfile);
     remove(mock_path);
     return 0;
 }
