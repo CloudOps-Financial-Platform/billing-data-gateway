@@ -4,6 +4,7 @@
 #include "pipeline.h"
 #include "mmap_reader.h"
 #include "provider_registry.h"
+#include "validation.h"
 
 #define MAX_ROW_TOKENS 256
 
@@ -52,7 +53,7 @@ bool pipeline_process_file(mmap_file_t *mfile, ifm_record_t *records_buffer,
     *out_records_count = 0;
     provider_registry_init();
 
-    /* 1. Extract Header Line from the already mapped descriptor array */
+    /* 1. Extract Header Line from the mapped descriptor array */
     const char *buffer = (const char *)mfile->data;
     const char *header_end = memchr(buffer, '\n', mfile->size);
     if (!header_end)
@@ -101,6 +102,8 @@ bool pipeline_process_file(mmap_file_t *mfile, ifm_record_t *records_buffer,
 
             if (adapter->parse_row(row_tokens, token_count, &col_map, rec))
             {
+                /* System 5 Validation Pass */
+                validation_evaluate_record(rec);
                 (*out_records_count)++;
             }
         }
@@ -111,6 +114,5 @@ bool pipeline_process_file(mmap_file_t *mfile, ifm_record_t *records_buffer,
         current_line++;
     }
 
-    /* Memory remains mapped cleanly for downstream output system usage layers */
     return true;
 }

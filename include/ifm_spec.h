@@ -20,12 +20,14 @@ typedef enum
     PROVIDER_GCP_BILLING
 } provider_type_t;
 
-/* Ingestion record state flags for production debugging */
+/* Ingestion record state flags for production debugging & validation */
 typedef enum
 {
     RECORD_VALID = 0,
-    RECORD_MISSING_KEY = (1 << 0), /* 0x01 */
-    RECORD_INVALID_COST = (1 << 1) /* 0x02 */
+    RECORD_MISSING_KEY = (1 << 0),   /* 0x01 */
+    RECORD_INVALID_COST = (1 << 1),  /* 0x02 */
+    RECORD_INVALID_DATE = (1 << 2),  /* 0x04 */
+    RECORD_EMPTY_RESOURCE = (1 << 3) /* 0x08 */
 } record_flags_t;
 
 /* Intermediate Financial Model (IFM) Record Struct */

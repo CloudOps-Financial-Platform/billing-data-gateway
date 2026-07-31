@@ -48,6 +48,7 @@ bool serializer_write_json(FILE *stream, const ifm_record_t *records, size_t cou
         fprintf(stream, "  {\n");
         fprintf(stream, "    \"source_line\": %zu,\n", r->source_line);
         fprintf(stream, "    \"provider\": \"%s\",\n", get_provider_json_name(r->provider));
+        fprintf(stream, "    \"flags\": %u,\n", (unsigned int)r->flags);
 
         fprintf(stream, "    \"account_id\": \"");
         print_json_slice(stream, r->account_id);
