@@ -19,7 +19,7 @@ static void print_usage(const char *prog_name)
     fprintf(stderr, "Usage: %s -i <input_csv_path> [-f <format>] [-v] [-h]\n", prog_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -i <path>    Specify the path to the raw cloud billing CSV export file\n");
-    fprintf(stderr, "  -f <format>  Specify output format: 'json' (streams raw data payload)\n");
+    fprintf(stderr, "  -f <format>  Specify output format: 'json' or 'csv' (streams raw data payload)\n");
     fprintf(stderr, "  -v           Display engine version and build metadata strings\n");
     fprintf(stderr, "  -h           Display this help menu\n\n");
 }
@@ -97,7 +97,6 @@ int main(int argc, char *argv[])
     char size_str[32];
     format_file_size(st.st_size, size_str, sizeof(size_str));
 
-    /* Initialize Memory Map safely at the root entry point layer context */
     mmap_file_t mfile;
     if (!mmap_open(input_path, &mfile))
     {
@@ -129,13 +128,30 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Output System serialization runs safely while mmap layout remains alive */
-    if (format_arg && strcmp(format_arg, "json") == 0)
+    /* Output Format Dispatch Layer */
+    if (format_arg)
     {
-        serializer_write_json(stdout, records, out_count);
-        free(records);
-        mmap_close(&mfile); // Safe close out after serialization reads finish
-        return 0;
+        if (strcmp(format_arg, "json") == 0)
+        {
+            serializer_write_json(stdout, records, out_count);
+            free(records);
+            mmap_close(&mfile);
+            return 0;
+        }
+        else if (strcmp(format_arg, "csv") == 0)
+        {
+            serializer_write_csv(stdout, records, out_count);
+            free(records);
+            mmap_close(&mfile);
+            return 0;
+        }
+        else
+        {
+            fprintf(stderr, "[!] Format Error: Unsupported format '%s'. Supported formats: 'json', 'csv'\n", format_arg);
+            free(records);
+            mmap_close(&mfile);
+            return 1;
+        }
     }
 
     double duration_sec = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -151,6 +167,6 @@ int main(int argc, char *argv[])
     printf("====================================================\n\n");
 
     free(records);
-    mmap_close(&mfile); // Clean up memory pages prior to application exit
+    mmap_close(&mfile);
     return 0;
 }

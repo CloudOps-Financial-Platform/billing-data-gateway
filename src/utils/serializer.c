@@ -70,3 +70,41 @@ bool serializer_write_json(FILE *stream, const ifm_record_t *records, size_t cou
     fprintf(stream, "]\n");
     return true;
 }
+
+bool serializer_write_csv(FILE *stream, const ifm_record_t *records, size_t count)
+{
+    if (!stream || !records || count == 0)
+    {
+        return false;
+    }
+
+    /* Print Canonical CSV Header */
+    fprintf(stream, "source_line,provider,flags,account_id,resource_id,usage_start_raw,billed_cost\n");
+
+    for (size_t i = 0; i < count; i++)
+    {
+        const ifm_record_t *r = &records[i];
+
+        int64_t dollars = r->billed_cost_micros / 1000000;
+        int64_t micros = r->billed_cost_micros % 1000000;
+        if (micros < 0)
+        {
+            micros = -micros;
+        }
+
+        fprintf(stream, "%zu,%s,%u,", r->source_line, get_provider_json_name(r->provider), (unsigned int)r->flags);
+
+        print_json_slice(stream, r->account_id);
+        fprintf(stream, ",");
+
+        print_json_slice(stream, r->resource_id);
+        fprintf(stream, ",");
+
+        print_json_slice(stream, r->usage_start_raw);
+        fprintf(stream, ",");
+
+        fprintf(stream, "%" PRId64 ".%06" PRId64 "\n", dollars, micros);
+    }
+
+    return true;
+}

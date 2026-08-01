@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <assert.h>
 #include "pipeline.h"
+#include "mmap_reader.h"
 
 #define NUM_STRESS_ROWS 100000
 #define BATCH_BUFFER_SIZE 105000
@@ -38,7 +39,7 @@ static size_t generate_large_aws_file(const char *filepath, size_t row_count)
 int main(void)
 {
     printf("=================================================================\n");
-    printf("   CN2 SYSTEMS — BILLING DATA GATEWAY THROUGHPUT BENCHMARK v0.5.0 \n");
+    printf("   CN2 SYSTEMS — BILLING DATA GATEWAY THROUGHPUT BENCHMARK v1.0.0 \n");
     printf("=================================================================\n");
 
     const char *bench_file = "bench_aws_stress.csv";
@@ -47,6 +48,11 @@ int main(void)
     size_t total_bytes = generate_large_aws_file(bench_file, NUM_STRESS_ROWS);
     double size_mb = (double)total_bytes / (1024.0 * 1024.0);
     printf("[+] Synthetic payload ready: %.2f MB (%zu bytes)\n", size_mb, total_bytes);
+
+    /* Open file via POSIX mmap layer */
+    mmap_file_t mfile;
+    bool open_status = mmap_open(bench_file, &mfile);
+    assert(open_status == true);
 
     /* Allocate buffer for parsed IFM records */
     ifm_record_t *records = malloc(sizeof(ifm_record_t) * BATCH_BUFFER_SIZE);
@@ -59,7 +65,7 @@ int main(void)
 
     /* Monotonic High-Resolution Benchmark Block */
     clock_gettime(CLOCK_MONOTONIC, &start);
-    bool status = pipeline_process_file(bench_file, records, BATCH_BUFFER_SIZE, &parsed_count);
+    bool status = pipeline_process_file(&mfile, records, BATCH_BUFFER_SIZE, &parsed_count);
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     assert(status == true);
@@ -73,8 +79,8 @@ int main(void)
     printf("\n-----------------------------------------------------------------\n");
     printf(" 📊 EMPIRICAL TELEMETRY RESULTS:\n");
     printf("-----------------------------------------------------------------\n");
-    printf("  • Total Dataset Size  : %.2f MB\n", size_mb);
-    printf("  • Records Parsed     : %zu / %d\n", parsed_count, NUM_STRESS_ROWS);
+    printf("  • Total Dataset Size   : %.2f MB\n", size_mb);
+    printf("  • Records Parsed      : %zu / %d\n", parsed_count, NUM_STRESS_ROWS);
     printf("  • Total Execution Time: %.4f seconds (%.2f ms)\n", elapsed_sec, elapsed_sec * 1000.0);
     printf("  • Processing Speed    : %.2f MB/sec\n", mb_per_sec);
     printf("  • Throughput Velocity : %.0f records/sec\n", records_per_sec);
@@ -83,6 +89,7 @@ int main(void)
     printf("[+] BENCHMARK COMPLETE: Zero-copy mmap performance invariants verified!\n\n");
 
     free(records);
+    mmap_close(&mfile);
     remove(bench_file);
     return 0;
 }

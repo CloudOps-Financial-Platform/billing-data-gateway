@@ -1,7 +1,6 @@
-#ifndef VERSION_H
-#define VERSION_H
+#ifndef GATEWAY_VERSION_H
+#define GATEWAY_VERSION_H
 
-#define GATEWAY_VERSION "v0.6.0"
-#define GATEWAY_BUILD_DATE "2026-07-28"
+#define GATEWAY_VERSION "1.0.0"
 
-#endif // VERSION_H
+#endif /* GATEWAY_VERSION_H */

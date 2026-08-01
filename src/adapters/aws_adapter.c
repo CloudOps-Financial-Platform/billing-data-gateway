@@ -9,7 +9,8 @@ static bool aws_detect(const char *header_line)
     if (!header_line)
         return false;
     return (strstr(header_line, "lineItem/UnblendedCost") != NULL ||
-            strstr(header_line, "identity/LineItemId") != NULL);
+            strstr(header_line, "identity/LineItemId") != NULL ||
+            strstr(header_line, "lineItem/AccountId") != NULL);
 }
 
 static bool aws_resolve_headers(const char *header_line, canonical_col_map_t *col_map)
@@ -35,15 +36,27 @@ static bool aws_resolve_headers(const char *header_line, canonical_col_map_t *co
             if (len > 0)
             {
                 if (strncmp(start, "identity/LineItemId", len) == 0 && len == strlen("identity/LineItemId"))
+                {
                     col_map->row_id_idx = current_col;
-                else if (strncmp(start, "lineItem/UsageAccountId", len) == 0 && len == strlen("lineItem/UsageAccountId"))
+                }
+                /* Header Aliases: Accept both lineItem/UsageAccountId and lineItem/AccountId */
+                else if ((strncmp(start, "lineItem/UsageAccountId", len) == 0 && len == strlen("lineItem/UsageAccountId")) ||
+                         (strncmp(start, "lineItem/AccountId", len) == 0 && len == strlen("lineItem/AccountId")))
+                {
                     col_map->account_id_idx = current_col;
+                }
                 else if (strncmp(start, "lineItem/ResourceId", len) == 0 && len == strlen("lineItem/ResourceId"))
+                {
                     col_map->resource_id_idx = current_col;
+                }
                 else if (strncmp(start, "lineItem/UsageStartDate", len) == 0 && len == strlen("lineItem/UsageStartDate"))
+                {
                     col_map->usage_start_idx = current_col;
+                }
                 else if (strncmp(start, "lineItem/UnblendedCost", len) == 0 && len == strlen("lineItem/UnblendedCost"))
+                {
                     col_map->cost_idx = current_col;
+                }
             }
 
             current_col++;
